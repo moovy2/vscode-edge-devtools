@@ -18,11 +18,13 @@ export class Screencast {
     private inputHandler: ScreencastInputHandler;
     private backButton: HTMLButtonElement;
     private forwardButton: HTMLButtonElement;
+    private mainWrapper: HTMLElement;
     private reloadButton: HTMLButtonElement;
     private rotateButton: HTMLButtonElement;
     private urlInput: HTMLInputElement;
     private screencastImage: HTMLImageElement;
     private screencastWrapper: HTMLElement;
+    private toolbar: HTMLElement;
     private deviceSelect: HTMLSelectElement;
     private inactiveOverlay: HTMLElement;
     private fixedWidth = 0;
@@ -32,11 +34,13 @@ export class Screencast {
     constructor() {
         this.backButton = document.getElementById('back') as HTMLButtonElement;
         this.forwardButton = document.getElementById('forward') as HTMLButtonElement;
+        this.mainWrapper = document.getElementById('main') as HTMLElement;
         this.reloadButton = document.getElementById('reload') as HTMLButtonElement;
         this.rotateButton = document.getElementById('rotate') as HTMLButtonElement;
         this.urlInput = document.getElementById('url') as HTMLInputElement;
         this.screencastImage = document.getElementById('canvas') as HTMLImageElement;
         this.screencastWrapper = document.getElementById('canvas-wrapper') as HTMLElement;
+        this.toolbar = document.getElementById('toolbar') as HTMLElement;
         this.deviceSelect = document.getElementById('device') as HTMLSelectElement;
         this.inactiveOverlay = document.getElementById('inactive-overlay') as HTMLElement;
 
@@ -93,11 +97,11 @@ export class Screencast {
     }
 
     get width(): number {
-        return this.fixedWidth || this.screencastWrapper.offsetWidth;
+        return this.fixedWidth || this.mainWrapper.offsetWidth;
     }
 
     get height(): number {
-        return this.fixedHeight || this.screencastWrapper.offsetHeight;
+        return this.fixedHeight || (this.mainWrapper.offsetHeight - this.toolbar.offsetHeight);
     }
 
     private registerInputListeners(): void {
@@ -106,7 +110,7 @@ export class Screencast {
 
         for (const eventName of Object.keys(MouseEventMap)) {
             this.screencastImage.addEventListener(eventName, event => {
-                const scale = this.screencastImage.offsetWidth / this.screencastImage.naturalWidth * window.devicePixelRatio;
+                const scale = this.screencastImage.offsetWidth / this.width;
                 const mouseEvent = event as MouseEvent;
                 if (this.isDeviceTouch() && !this.inspectMode) {
                     this.inputHandler.emitTouchFromMouseEvent(mouseEvent, scale);
@@ -241,11 +245,10 @@ export class Screencast {
     }
 
     private onScreencastFrame({data, sessionId}: any): void {
-        const expectedWidth = Math.floor(this.width * window.devicePixelRatio);
-        const expectedHeight = Math.floor(this.height * window.devicePixelRatio);
+        const expectedRatio = this.width / this.height;
+        const actualRatio = this.screencastImage.naturalWidth / this.screencastImage.naturalHeight;
         this.screencastImage.src = `data:image/png;base64,${data}`;
-        this.screencastImage.style.width = `${this.width}px`;
-        if (this.screencastImage.naturalWidth !== expectedWidth || this.screencastImage.naturalHeight !== expectedHeight) {
+        if (expectedRatio !== actualRatio) {
             this.updateEmulation();
         }
         this.cdpConnection.sendMessageToBackend('Page.screencastFrameAck', {sessionId});

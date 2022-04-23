@@ -55,7 +55,8 @@ export function createFakeVSCode() {
         debug: {
             registerDebugConfigurationProvider: jest.fn(),
             activeDebugSession: {
-                id: 'vscode-session-debug-id'
+                id: 'vscode-session-debug-id',
+                name: 'someName',
             }
         },
         extensions: {
@@ -98,8 +99,6 @@ export function createFakeVSCode() {
                         switch(name) {
                             case "enableNetwork":
                                 return true;
-                            case "themes":
-                                return "System preference";
                             case "welcome":
                                 return true;
                             case "isHeadless":
@@ -114,8 +113,6 @@ export function createFakeVSCode() {
                         switch(name) {
                             case "enableNetwork":
                                 return {defaultValue: true};
-                            case "themes":
-                                return {defaultValue: "Light"};
                             case "welcome":
                                 return {defaultValue: false};
                             case "isHeadless":
