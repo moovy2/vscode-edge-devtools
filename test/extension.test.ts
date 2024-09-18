@@ -1,9 +1,9 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License.
 
-import { ExtensionContext } from "vscode";
+import { ExtensionContext, Uri} from "vscode";
 import TelemetryReporter from "vscode-extension-telemetry";
-import { createFakeExtensionContext, createFakeTelemetryReporter, createFakeVSCode, Mocked } from "./helpers/helpers";
+import { createFakeExtensionContext, createFakeTelemetryReporter, createFakeVSCode, createFakeLanguageClient, Mocked } from "./helpers/helpers";
 import {
     buttonCode,
     IRemoteTargetJson,
@@ -14,6 +14,7 @@ import {
 } from "../src/utils";
 
 jest.mock("vscode", () => createFakeVSCode(), { virtual: true });
+jest.mock("vscode-languageclient/node", () => createFakeLanguageClient(), { virtual: true });
 
 describe("extension", () => {
     const fakeRuntimeConfig: Partial<IRuntimeConfig> = {};
@@ -36,10 +37,12 @@ describe("extension", () => {
                 buttonCode,
                 SETTINGS_STORE_NAME,
                 SETTINGS_VIEW_NAME,
+                checkWithinHoverRange: jest.fn(),
                 createTelemetryReporter: jest.fn((_: ExtensionContext) => createFakeTelemetryReporter()),
                 getListOfTargets: jest.fn().mockReturnValue([]),
                 getRemoteEndpointSettings: jest.fn(),
                 getRuntimeConfig: jest.fn(),
+                getSupportedStaticAnalysisFileTypes: jest.fn(),
                 removeTrailingSlash: jest.fn(removeTrailingSlash),
                 getJsDebugCDPProxyWebsocketUrl: jest.fn(),
                 getActiveDebugSessionId: jest.fn(),
@@ -57,6 +60,9 @@ describe("extension", () => {
                     CDPTargetsProvider: mockProviderConstructor,
                 };
             });
+
+            const mockLanguageClient = createFakeLanguageClient()
+            jest.doMock("vscode-languageclient/node", () => mockLanguageClient, { virtual: true });
 
             // Mock out vscode command registration
             const mockVSCode = createFakeVSCode();
@@ -81,8 +87,8 @@ describe("extension", () => {
             // Activation should add the commands as subscriptions on the context
             newExtension.activate(context);
 
-            expect(context.subscriptions.length).toBe(17);
-            expect(commandMock).toHaveBeenCalledTimes(16);
+            expect(context.subscriptions.length).toBe(19);
+            expect(commandMock).toHaveBeenCalledTimes(18);
             expect(commandMock)
                 .toHaveBeenNthCalledWith(1, `${SETTINGS_STORE_NAME}.attach`, expect.any(Function));
             expect(commandMock)
@@ -113,6 +119,12 @@ describe("extension", () => {
                 .toHaveBeenNthCalledWith(14, `${SETTINGS_VIEW_NAME}.launchProject`, expect.any(Function));
             expect(commandMock)
                 .toHaveBeenNthCalledWith(15, `${SETTINGS_VIEW_NAME}.viewDocumentation`, expect.any(Function));
+            expect(commandMock)
+                .toHaveBeenNthCalledWith(16, `${SETTINGS_VIEW_NAME}.cssMirrorContent`, expect.any(Function));
+            expect(commandMock)
+                .toHaveBeenNthCalledWith(17, `${SETTINGS_VIEW_NAME}.launchHtml`, expect.any(Function));
+            expect(commandMock)
+                .toHaveBeenNthCalledWith(18, `${SETTINGS_VIEW_NAME}.launchScreencast`, expect.any(Function));
             expect(mockRegisterTree)
                 .toHaveBeenNthCalledWith(1, `${SETTINGS_VIEW_NAME}.targets`, expect.any(Object));
         });
@@ -388,6 +400,8 @@ describe("extension", () => {
         let mockReporter: Mocked<Readonly<TelemetryReporter>>;
         let mockUtils: Partial<Mocked<typeof import("../src/utils")>>;
         let mockPanel: Partial<Mocked<typeof import("../src/devtoolsPanel")>>;
+        let startDebuggingMock: jest.Mock;
+        let mockVSCode: any;
 
         beforeEach(() => {
             mockReporter = createFakeTelemetryReporter();
@@ -401,7 +415,9 @@ describe("extension", () => {
                     port: "port",
                     timeout: 10000,
                     useHttps: false,
+                    userDataDir: "profile"
                 }),
+                getSupportedStaticAnalysisFileTypes: jest.fn(),
                 getRuntimeConfig: jest.fn().mockReturnValue(fakeRuntimeConfig),
                 launchBrowser: jest.fn().mockResolvedValue(fakeBrowser),
                 openNewTab: jest.fn().mockResolvedValue(null),
@@ -419,11 +435,66 @@ describe("extension", () => {
                     createOrShow: jest.fn(),
                 } as any,
             };
+            mockVSCode = createFakeVSCode();
+            startDebuggingMock = mockVSCode.debug.startDebugging;
 
-            jest.doMock("vscode", () => createFakeVSCode(), { virtual: true });
+            jest.doMock("vscode", () => mockVSCode, { virtual: true });
             jest.doMock("../src/utils", () => mockUtils);
             jest.doMock("../src/devtoolsPanel", () => mockPanel);
             jest.resetModules();
+        });
+
+
+        it("can launch html files in remote (wsl) context", async () => {
+            const expectedRemoteName = 'wsl';
+            const testFileUri = {
+                scheme: 'vscode-remote',
+                authority: 'wsl+ubuntu-20.04',
+                fsPath: 'test/path.html',
+                query: '',
+                fragment: ''
+            } as Uri;
+
+            mockVSCode.env.remoteName = expectedRemoteName;
+
+            const expectedUrl = `file://${expectedRemoteName}.localhost/ubuntu-20.04/test/path.html`;
+
+            const newExtension = await import("../src/extension");
+            await newExtension.launchHtml(testFileUri);
+
+            expect(mockUtils.getRemoteEndpointSettings).toHaveBeenCalled()
+            expect(mockUtils.getBrowserPath).toHaveBeenCalled();
+            expect(mockUtils.launchBrowser).toHaveBeenCalledWith(
+                expect.any(String) /** browserPath */,
+                expect.any(String) /** port */,
+                expectedUrl /** targetUrl */,
+                expect.any(String) /** userDataDir */,
+                expect.any(Boolean) /** headlessOverride */
+            );
+            expect(startDebuggingMock).toHaveBeenCalledWith(undefined, expect.objectContaining({
+                url: expectedUrl
+            }));
+        });
+
+        it("can launch html files in non-remote contexts", async () => {
+            mockVSCode.env.remoteName = undefined;
+            const testFileUri = {
+                scheme: 'file',
+                authority: '',
+                fsPath: 'test/path.html',
+                query: '',
+                fragment: ''
+            } as Uri;
+            const expectedUrl = `file://test/path.html`;
+
+            const newExtension = await import("../src/extension");
+            await newExtension.launchHtml(testFileUri);
+            expect(startDebuggingMock).toHaveBeenNthCalledWith(1, undefined, expect.objectContaining({
+                url: expectedUrl
+            }));
+            expect(startDebuggingMock).toHaveBeenNthCalledWith(2, undefined, expect.objectContaining({
+                url: expectedUrl
+            }));
         });
 
         it("calls launch on launch command", async () => {

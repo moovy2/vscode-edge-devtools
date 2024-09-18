@@ -2,14 +2,14 @@
 // Licensed under the MIT License.
 
 import { Uri } from 'vscode';
-import { emulatedDevices } from './emulatedDevices';
 
 export class ScreencastView {
     private webviewCSP: string;
     private cssPath: Uri
     private codiconsUri: Uri;
     private inspectorUri: Uri
-    private htmlTemplate = (webviewCSP: string, cssPath: Uri, codiconsUri: Uri, inspectorUri: Uri, deviceList: string) => `<!doctype html>
+    private isDevToolsOpen: boolean;
+    private htmlTemplate = (webviewCSP: string, cssPath: Uri, codiconsUri: Uri, inspectorUri: Uri, isDevToolsOpen: boolean) => `<!doctype html>
   <html>
   <head>
       <meta http-equiv="content-type" content="text/html; charset=utf-8">
@@ -29,28 +29,30 @@ export class ScreencastView {
   </head>
   <body>
       <div id="main">
+          <div id="infobar"></div>
           <div id="toolbar">
-              <button id="back">
+              <button id="back" title="Back">
                   <i class="codicon codicon-arrow-left"></i>
               </button>
-              <button id="forward">
+              <button id="forward" title="Forward">
                   <i class="codicon codicon-arrow-right"></i>
               </button>
-              <button id="reload">
+              <button id="reload" title="Reload">
                   <i class="codicon codicon-refresh"></i>
               </button>
               <input id="url" />
-              <select id="device">
-                  <option selected value="desktop">Desktop</option>
-                  ${deviceList}
-              </select>
-              <button id="rotate">
-                  <i class="codicon codicon-editor-layout"></i>
+              <button id="inspect" title="${isDevToolsOpen ? 'Close DevTools' : 'Open DevTools'}">
+                  <i class="codicon codicon-inspect ${isDevToolsOpen ? 'devtools-open' : ''}"></i>
               </button>
           </div>
           <div id="canvas-wrapper">
               <img id="canvas" draggable="false" tabindex="0" />
           </div>
+        <div id="emulation-bar">
+            <div id="emulation-bar-right"></div>
+            <div id="emulation-bar-center"></div>
+            <div id="emulation-bar-left"></div>
+        </div>
       </div>
       <div id="inactive-overlay" hidden>
         The tab is inactive
@@ -59,41 +61,15 @@ export class ScreencastView {
   </html>
   `;
 
-    constructor(webviewCSP: string, cssPath: Uri, codiconsUri: Uri, inspectorUri: Uri) {
+    constructor(webviewCSP: string, cssPath: Uri, codiconsUri: Uri, inspectorUri: Uri, isDevToolsOpen: boolean) {
         this.webviewCSP = webviewCSP;
         this.cssPath = cssPath;
         this.codiconsUri = codiconsUri;
         this.inspectorUri = inspectorUri;
-    }
-
-    private getDeviceList(devicesArray: Object[]) {
-        let templatedString = '';
-
-        for (const device of devicesArray) {
-            // @ts-ignore ignoring as this is a static template.
-            templatedString += `<option deviceWidth=${device.screen.vertical.width} deviceHeight=${device.screen.vertical.height} ${ScreencastView.getDeviceCapabilities(device.capabilities)} userAgent=${escape(device['user-agent'])} value="${ScreencastView.getDeviceValueFromTitle(device.title)}">${device.title}</option>`;
-        }
-
-        return templatedString;
-    }
-
-    static getDeviceCapabilities(deviceCapabilities: string[]): string{
-        let result = '';
-        for (const device of deviceCapabilities){
-            if (device === 'touch' || device === 'mobile') {
-                result += `${device}=true `
-            }
-        }
-
-        return result;
-    }
-
-    static getDeviceValueFromTitle(title: string): string {
-        return title.replace(/['/' || ' ' || '-']/g, '');
+        this.isDevToolsOpen = isDevToolsOpen;
     }
 
     render(): string {
-        const deviceList = this.getDeviceList(emulatedDevices);
-        return this.htmlTemplate(this.webviewCSP, this.cssPath, this.codiconsUri, this.inspectorUri, deviceList);
+        return this.htmlTemplate(this.webviewCSP, this.cssPath, this.codiconsUri, this.inspectorUri, this.isDevToolsOpen);
     }
 }

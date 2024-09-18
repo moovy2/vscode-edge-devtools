@@ -7,7 +7,6 @@ import {
     SETTINGS_STORE_NAME,
     SETTINGS_DEFAULT_URL,
 } from './utils';
-export type LaunchConfig = 'None' | 'Unsupported' | string;
 export type CompoundConfig = {
     name: string,
     configurations: string[],
@@ -38,7 +37,7 @@ export const providedHeadlessDebugConfig: vscode.DebugConfiguration = {
     },
 };
 
-const providedLaunchDevToolsConfig: vscode.DebugConfiguration = {
+export const providedLaunchDevToolsConfig: vscode.DebugConfiguration = {
     type: 'vscode-edge-devtools.debug',
     name: 'Open Edge DevTools',
     request: 'attach',
@@ -76,7 +75,7 @@ export const extensionConfigs: vscode.DebugConfiguration[] = [
 ];
 
 export class LaunchConfigManager {
-    private launchConfig: LaunchConfig;
+    private launchConfig: string;
     private isValidConfig: boolean;
     private static launchConfigManagerInstance: LaunchConfigManager;
 
@@ -93,7 +92,7 @@ export class LaunchConfigManager {
         return LaunchConfigManager.launchConfigManagerInstance;
     }
 
-    getLaunchConfig(): LaunchConfig {
+    getLaunchConfig(): string {
         this.updateLaunchConfig();
         return this.launchConfig;
     }
@@ -154,7 +153,7 @@ export class LaunchConfigManager {
         for (const missingConfig of missingConfigs) {
             configs.push((missingConfig as vscode.DebugConfiguration));
         }
-        await launchJson.update('configurations', configs) as unknown as Promise<void>;
+        void await launchJson.update('configurations', configs);
 
         // Add compound configs
         let compounds = launchJson.get('compounds') as CompoundConfig[];
@@ -163,7 +162,7 @@ export class LaunchConfigManager {
         for (const missingCompoundConfig of missingCompoundConfigs) {
             compounds.push((missingCompoundConfig as CompoundConfig));
         }
-        await launchJson.update('compounds', compounds) as unknown as Promise<void>;
+        void await launchJson.update('compounds', compounds);
 
         // Insert instruction comment
         let launchText = fse.readFileSync(workspaceUri.fsPath + relativePath).toString();

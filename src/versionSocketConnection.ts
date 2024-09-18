@@ -4,6 +4,7 @@
 import { EventEmitter } from 'events';
 import WebSocket from 'ws';
 import { WebSocketEvent } from './common/webviewEvents';
+import { CDN_FALLBACK_REVISION } from './utils';
 
 export type IDevToolsPostMessageCallback = (e: WebSocketEvent, message?: string) => void;
 
@@ -15,8 +16,9 @@ export interface BrowserVersionCdpResponse {
    }
 }
 
-// Minimum supported version of Edge for new CDN system
-export const MIN_SUPPORTED_VERSION = '94.0.988.0';
+// Minimum supported version of Edge
+export const MIN_SUPPORTED_VERSION = '127.0.2592.0';
+export const MIN_SUPPORTED_REVISION = CDN_FALLBACK_REVISION;
 
 export class BrowserVersionDetectionSocket extends EventEmitter {
     private readonly targetUrl: string;
@@ -55,6 +57,7 @@ export class BrowserVersionDetectionSocket extends EventEmitter {
 
     private onMessage(message: { data: WebSocket.Data }) {
         // Determine if this is the browser.getVersion response and send revision hash to devtoolsPanel
+        // eslint-disable-next-line @typescript-eslint/no-base-to-string
         const data = JSON.parse(message.data.toString()) as BrowserVersionCdpResponse;
         this.emit('setCdnParameters', this.calcBrowserRevision(data));
         // Dispose socket after version is determined
@@ -73,13 +76,14 @@ export class BrowserVersionDetectionSocket extends EventEmitter {
         const currentVersion = versionNum.split('.').map(part => Number(part));
         const minSupportedVersion = MIN_SUPPORTED_VERSION.split('.').map(part => Number(part));
         const currentRevision = data.result.revision || '';
+
         for (let i = 0; i < currentVersion.length; i++) {
             // Loop through from Major to minor numbers
             if (currentVersion[i] > minSupportedVersion[i]) {
                 return {revision: currentRevision, isHeadless};
             }
             if (currentVersion[i] < minSupportedVersion[i]) {
-                return {revision: '', isHeadless};
+                return {revision: MIN_SUPPORTED_REVISION, isHeadless};
             }
             // Continue to the next number
         }
