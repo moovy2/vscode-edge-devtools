@@ -4,7 +4,7 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import * as debugCore from 'vscode-chrome-debug-core';
 import { performance } from 'perf_hooks';
-import TelemetryReporter from 'vscode-extension-telemetry';
+import TelemetryReporter from '@vscode/extension-telemetry';
 import { SettingsProvider } from './common/settingsProvider';
 import {
     encodeMessageForChannel,
@@ -30,6 +30,8 @@ import {
     SETTINGS_WEBVIEW_NAME,
     SETTINGS_VIEW_NAME,
     CDN_FALLBACK_REVISION,
+    getCSSMirrorContentEnabled,
+    setCSSMirrorContentEnabled,
 } from './utils';
 import { ErrorReporter } from './errorReporter';
 import { ErrorCodes } from './common/errorCodes';
@@ -54,6 +56,9 @@ export class DevToolsPanel {
     private consoleMessages: string[] = [];
     private collectConsoleMessages = true;
     private currentRevision: string | undefined;
+    private cssWarningActive: boolean;
+    private fallbackChain: (() => void)[] = [];
+    private getFallbackRevisionFunction: (() => void) = () => {};
 
     private constructor(
         panel: vscode.WebviewPanel,
@@ -69,7 +74,8 @@ export class DevToolsPanel {
         this.config = config;
         this.timeStart = null;
         this.devtoolsBaseUri = this.config.devtoolsBaseUri || null;
-        this.isHeadless = false;
+        this.isHeadless = SettingsProvider.instance.getHeadlessSettings();
+        this.cssWarningActive = false;
 
         // Hook up the socket events
         if (this.config.isJsDebugProxiedCDPConnection) {
@@ -78,28 +84,33 @@ export class DevToolsPanel {
             this.panelSocket = new PanelSocket(this.targetUrl, (e, msg) => this.postToDevTools(e, msg));
         }
         this.panelSocket.on('ready', () => this.onSocketReady());
-        this.panelSocket.on('websocket', msg => this.onSocketMessage(msg));
-        this.panelSocket.on('telemetry', msg => this.onSocketTelemetry(msg));
-        this.panelSocket.on('getState', msg => this.onSocketGetState(msg));
-        this.panelSocket.on('getVscodeSettings', msg => this.onSocketGetVscodeSettings(msg));
-        this.panelSocket.on('setState', msg => this.onSocketSetState(msg));
-        this.panelSocket.on('getUrl', msg => this.onSocketGetUrl(msg) as unknown as void);
-        this.panelSocket.on('openUrl', msg => this.onSocketOpenUrl(msg) as unknown as void);
-        this.panelSocket.on('openInEditor', msg => this.onSocketOpenInEditor(msg) as unknown as void);
+        this.panelSocket.on('websocket', (msg: string) => this.onSocketMessage(msg));
+        this.panelSocket.on('telemetry', (msg: string) => this.onSocketTelemetry(msg));
+        this.panelSocket.on('getState', (msg: string) => this.onSocketGetState(msg));
+        this.panelSocket.on('getVscodeSettings', (msg: string) => this.onSocketGetVscodeSettings(msg));
+        this.panelSocket.on('setState', (msg: string) => this.onSocketSetState(msg));
+        this.panelSocket.on('getUrl', (msg: string) => this.onSocketGetUrl(msg) as unknown as void);
+        this.panelSocket.on('openUrl', (msg: string) => this.onSocketOpenUrl(msg) as unknown as void);
+        this.panelSocket.on('openInEditor', (msg: string) => this.onSocketOpenInEditor(msg) as unknown as void);
         this.panelSocket.on('toggleScreencast', () => this.toggleScreencast() as unknown as void);
-        this.panelSocket.on('cssMirrorContent', msg => this.onSocketCssMirrorContent(msg) as unknown as void);
+        this.panelSocket.on('cssMirrorContent', (msg: string) => this.onSocketCssMirrorContent(msg) as unknown as void);
         this.panelSocket.on('close', () => this.onSocketClose());
-        this.panelSocket.on('copyText', msg => this.onSocketCopyText(msg));
-        this.panelSocket.on('focusEditor', msg => this.onSocketFocusEditor(msg));
-        this.panelSocket.on('focusEditorGroup', msg => this.onSocketFocusEditorGroup(msg));
+        this.panelSocket.on('copyText', (msg: string) => this.onSocketCopyText(msg));
+        this.panelSocket.on('focusEditor', (msg: string) => this.onSocketFocusEditor(msg));
+        this.panelSocket.on('focusEditorGroup', (msg: string) => this.onSocketFocusEditorGroup(msg));
         this.panelSocket.on('replayConsoleMessages', () => this.onSocketReplayConsoleMessages());
-        this.panelSocket.on('devtoolsConnection', success => this.onSocketDevToolsConnection(success));
-        this.panelSocket.on('toggleCSSMirrorContent', msg => this.onToggleCSSMirrorContent(msg) as unknown as void);
+        this.panelSocket.on('devtoolsConnection', (success: string) => this.onSocketDevToolsConnection(success));
+        this.panelSocket.on('toggleCSSMirrorContent', (msg: string) => this.onToggleCSSMirrorContent(msg) as unknown as void);
 
         // This Websocket is only used on initial connection to determine the browser version.
         // The browser version is used to select the correct hashed version of the devtools
         this.versionDetectionSocket = new BrowserVersionDetectionSocket(this.targetUrl);
-        this.versionDetectionSocket.on('setCdnParameters', msg => this.setCdnParameters(msg));
+
+        // Gets an array of functions that will be tried to get the right Devtools revision.
+        this.fallbackChain = this.determineVersionFallback();
+        if (this.fallbackChain.length > 0) {
+            this.getFallbackRevisionFunction = this.fallbackChain.pop() || this.getFallbackRevisionFunction;
+        }
 
         // Handle closing
         this.panel.onDidDispose(() => {
@@ -113,14 +124,13 @@ export class DevToolsPanel {
                     // Connection type determined already
                     this.update();
                 } else {
-                    // Use version socket to determine which Webview/Tools to use
-                    this.versionDetectionSocket.detectVersion();
+                    this.getFallbackRevisionFunction();
                 }
             }
         }, this, this.disposables);
 
         // Handle messages from the webview
-        this.panel.webview.onDidReceiveMessage(message => {
+        this.panel.webview.onDidReceiveMessage((message: string) => {
             this.panelSocket.onMessageFromWebview(message);
         }, this, this.disposables);
 
@@ -133,12 +143,52 @@ export class DevToolsPanel {
         });
     }
 
+    /**
+     * Allows multiple fallbacks, allowing the user to select between stability
+     * or latest features.
+     * @returns A function array that has the fallback chain.
+     */
+    determineVersionFallback() {
+        const browserFlavor = this.config.browserFlavor;
+        const storedRevision = this.context.globalState.get<string>('fallbackRevision') || '';
+        const callWrapper = (revision: string) => {
+            this.setCdnParameters({revision, isHeadless: this.isHeadless});
+        };
+
+        // Use version socket to determine which Webview/Tools to use
+        const detectedVersion = () => {
+            this.versionDetectionSocket.on('setCdnParameters', (msg: {revision: string; isHeadless: boolean}) => {
+                this.setCdnParameters(msg);
+            });
+
+            this.versionDetectionSocket.detectVersion.bind(this.versionDetectionSocket)();
+        };
+
+        // we reverse the array so that it behaves like a stack.
+        switch (browserFlavor) {
+            case 'Beta':
+            case 'Canary':
+            case 'Dev':
+            case 'Stable': {
+                return [ detectedVersion,
+                        () => callWrapper(CDN_FALLBACK_REVISION),
+                        () => callWrapper(storedRevision)].reverse();
+            }
+
+            case 'Default':
+            default: {
+                return [() => callWrapper(CDN_FALLBACK_REVISION),
+                        detectedVersion,
+                        () => callWrapper(storedRevision)].reverse();
+            }
+        }
+    }
+
     dispose(): void {
         DevToolsPanel.instance = undefined;
 
         this.panel.dispose();
         this.panelSocket.dispose();
-        this.versionDetectionSocket.dispose();
         if (this.timeStart !== null) {
             const timeEnd = performance.now();
             const sessionTime = timeEnd - this.timeStart;
@@ -155,6 +205,9 @@ export class DevToolsPanel {
         if (!ScreencastPanel.instance && vscode.debug.activeDebugSession?.name.includes(providedHeadlessDebugConfig.name)) {
             void vscode.commands.executeCommand('workbench.action.debug.stop');
         }
+
+        // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+        ScreencastPanel.instance && ScreencastPanel.instance.update();
     }
 
     private postToDevTools(e: WebSocketEvent, message?: string) {
@@ -189,7 +242,7 @@ export class DevToolsPanel {
 
     private onToggleCSSMirrorContent(message: string) {
         const { isEnabled } = JSON.parse(message) as IToggleCSSMirrorContentData;
-        void vscode.commands.executeCommand(`${SETTINGS_VIEW_NAME}.cssMirrorContent`, {isEnabled});
+        void setCSSMirrorContentEnabled(this.context, isEnabled);
     }
 
     private onSocketMessage(message: string) {
@@ -205,7 +258,7 @@ export class DevToolsPanel {
                         void vscode.commands.executeCommand(`${SETTINGS_VIEW_NAME}.toggleInspect`, { enabled: true });
                     }
                 }
-            } catch (e) {
+            } catch {
                 // Ignore
             }
         }
@@ -290,10 +343,9 @@ export class DevToolsPanel {
     private onSocketGetVscodeSettings(message: string) {
         const { id } = JSON.parse(message) as { id: number };
         encodeMessageForChannel(msg => this.panel.webview.postMessage(msg) as unknown as void, 'getVscodeSettings', {
-            enableNetwork: SettingsProvider.instance.isNetworkEnabled(),
-            welcome: SettingsProvider.instance.getWelcomeSettings(),
             isHeadless: SettingsProvider.instance.getHeadlessSettings(),
-            id });
+            id,
+        });
     }
 
     private onSocketSetState(message: string) {
@@ -352,7 +404,7 @@ export class DevToolsPanel {
     }
 
     private async onSocketCssMirrorContent(message: string) {
-        if (!SettingsProvider.instance.getCSSMirrorContentSettings()) {
+        if (!getCSSMirrorContentEnabled(this.context)) {
             return;
         }
 
@@ -366,8 +418,17 @@ export class DevToolsPanel {
             const textEditor = await this.openEditorFromUri(uri);
             if (textEditor) {
                 const fullRange = this.getDocumentFullRange(textEditor);
-                const isSnapshotSameAsLastMirroredCSS = this.mirroredCSS.get(url) === textEditor.document.getText();
-                if (!textEditor.document.isDirty || isSnapshotSameAsLastMirroredCSS)
+                const mirroredCSSText = this.mirroredCSS.get(url);
+                const textEditorCSSText = textEditor.document.getText();
+                const isSnapshotSameAsLastMirroredCSS = mirroredCSSText === textEditorCSSText;
+                let canMirror = !textEditor.document.isDirty || isSnapshotSameAsLastMirroredCSS;
+                if (!canMirror) {
+                    // Standardize line endings to ignore CRLF/LF differences
+                    const standardizedMirroredCSStext = mirroredCSSText && mirroredCSSText.replace(/\r\n/g, '\n');
+                    const standardizedTextEditorCSSText = textEditorCSSText && textEditorCSSText.replace(/\r\n/g, '\n');
+                    canMirror = standardizedMirroredCSStext === standardizedTextEditorCSSText;
+                }
+                if (canMirror)
                 {
                     this.mirroredCSS.set(url, newContent);
                     void textEditor.edit(editBuilder => {
@@ -376,7 +437,7 @@ export class DevToolsPanel {
                 }
                 else
                 {
-                    void vscode.window.showWarningMessage('DevTools will not mirror CSS changes while there are unsaved direct edits. Save your changes then refresh the target page to re-enable.');
+                    void this.showCssMirroringWarning();
                 }
             }
         } else {
@@ -390,15 +451,19 @@ export class DevToolsPanel {
 
     private onSocketDevToolsConnection(success: string) {
         if (success === 'true') {
-            void vscode.workspace.getConfiguration(SETTINGS_STORE_NAME).update('fallbackRevision', this.currentRevision, true);
+            void this.context.globalState.update('fallbackRevision', this.currentRevision);
+            this.fallbackChain = this.determineVersionFallback();
         } else {
-            // Retry connection with fallback.
-            const settingsConfig = vscode.workspace.getConfiguration(SETTINGS_STORE_NAME);
-            const fallbackRevision = settingsConfig.get('fallbackRevision') as string;
             if (this.currentRevision) {
                 this.telemetryReporter.sendTelemetryEvent('websocket/failedConnection', {revision: this.currentRevision});
             }
-            this.setCdnParameters({revision: fallbackRevision, isHeadless: this.isHeadless});
+
+            // We failed trying to retrieve the specified revision
+            // we fallback to the next option if available.
+            if (this.fallbackChain.length > 0) {
+                this.getFallbackRevisionFunction = this.fallbackChain.pop() || (() => {});
+                this.getFallbackRevisionFunction();
+            }
         }
     }
 
@@ -412,7 +477,7 @@ export class DevToolsPanel {
             await ErrorReporter.showErrorDialog({
                 errorCode: ErrorCodes.Error,
                 title: 'Error while opening file in editor.',
-                message: e,
+                message: e instanceof Error && e.message ? e.message : `Unexpected error ${e}`,
             });
         }
     }
@@ -434,7 +499,7 @@ export class DevToolsPanel {
                 const oldSourePath = sourcePath;
                 sourcePath = addEntrypointIfNeeded(sourcePath, this.config.defaultEntrypoint);
                 appendedEntryPoint = oldSourePath !== sourcePath;
-            } catch (e) {
+            } catch {
                 await ErrorReporter.showInformationDialog({
                     errorCode: ErrorCodes.Error,
                     title: 'Unable to open file in editor.',
@@ -473,6 +538,14 @@ export class DevToolsPanel {
         });
     }
 
+    private async showCssMirroringWarning() {
+        if (!this.cssWarningActive) {
+            this.cssWarningActive = true;
+            await vscode.window.showWarningMessage('DevTools will not mirror CSS changes while there are unsaved direct edits. Save your changes then refresh the target page to re-enable.', ...[]);
+            this.cssWarningActive = false;
+        }
+    }
+
     private update() {
         this.panel.webview.html = this.getCdnHtmlForWebview();
     }
@@ -487,13 +560,7 @@ export class DevToolsPanel {
         const stylesUri = this.panel.webview.asWebviewUri(stylesPath);
 
         const theme = SettingsProvider.instance.getThemeFromUserSetting();
-        const cssMirrorContent = SettingsProvider.instance.getCSSMirrorContentSettings();
-        const standaloneScreencast = SettingsProvider.instance.getScreencastSettings();
-
-        // The headless query param is used to show/hide the DevTools screencast on launch
-        // If the standalone screencast is enabled, we want to hide the DevTools screencast
-        // regardless of the headless setting.
-        const enableScreencast = standaloneScreencast ? false : this.isHeadless;
+        const cssMirrorContent = getCSSMirrorContentEnabled(this.context);
 
         // the added fields for "Content-Security-Policy" allow resource loading for other file types
         return `
@@ -514,7 +581,9 @@ export class DevToolsPanel {
                 ">
             </head>
             <body>
-                <iframe id="devtools-frame" frameBorder="0" src="${cdnBaseUri}?experiments=true&theme=${theme}&headless=${enableScreencast}&standaloneScreencast=${standaloneScreencast}&cssMirrorContent=${cssMirrorContent}"></iframe>
+                <iframe id="devtools-frame"
+                allow="clipboard-read; clipboard-write *"
+                frameBorder="0" src="${cdnBaseUri}?experiments=true&theme=${theme}&standaloneScreencast=true&cssMirrorContent=${cssMirrorContent}"></iframe>
                 <div id="error-message" class="hidden">
                     <h1>Unable to download DevTools for the current target.</h1>
                     <p>Try these troubleshooting steps:</p>
@@ -530,7 +599,7 @@ export class DevToolsPanel {
     }
 
     private setCdnParameters(msg: {revision: string, isHeadless: boolean}) {
-        this.currentRevision = msg.revision || CDN_FALLBACK_REVISION;
+        this.currentRevision = msg.revision;
         this.devtoolsBaseUri = `https://devtools.azureedge.net/serve_file/${this.currentRevision}/vscode_app.html`;
         this.isHeadless = msg.isHeadless;
         this.update();
@@ -560,8 +629,11 @@ export class DevToolsPanel {
                 enableScripts: true,
                 retainContextWhenHidden: true,
             });
-
+            panel.iconPath = vscode.Uri.joinPath(context.extensionUri, 'icon.png');
             DevToolsPanel.instance = new DevToolsPanel(panel, context, telemetryReporter, targetUrl, config);
+
+            // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+            ScreencastPanel.instance && ScreencastPanel.instance.update();
         }
     }
 }

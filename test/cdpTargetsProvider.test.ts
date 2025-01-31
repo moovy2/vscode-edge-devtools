@@ -5,7 +5,7 @@
 // tslint:disable: variable-name
 
 import { ExtensionContext } from "vscode";
-import TelemetryReporter from "vscode-extension-telemetry";
+import TelemetryReporter from "@vscode/extension-telemetry";
 import { CDPTarget } from "../src/cdpTarget";
 import { createFakeExtensionContext, createFakeTelemetryReporter, createFakeVSCode, Mocked } from "./helpers/helpers";
 import { IRemoteTargetJson } from "../src/utils";
@@ -120,7 +120,7 @@ describe("CDPTargetsProvider", () => {
             url: '',
             webSocketDebuggerUrl: ''
         }
-        template.url = "https://docs.microsoft.com/en-us/microsoft-edge/";
+        template.url = "https://learn.microsoft.com/microsoft-edge/";
         await provider.downloadFaviconFromSitePromise(template);
         const microsoftIcon = template.faviconUrl;
         template.url = "https://www.bing.com/";

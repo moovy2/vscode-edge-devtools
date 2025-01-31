@@ -34,7 +34,7 @@ export class ScreencastInputHandler {
         }
         this.cdpConnection.sendMessageToBackend('Input.dispatchMouseEvent', {
             type: eventType,
-            clickCount: eventType === 'mousePressed' || eventType === 'mouseReleased' ? 1 : 0,
+            clickCount: mouseEvent.detail, // per https://developer.mozilla.org/docs/Web/API/UIEvent/detail
             x: Math.round(mouseEvent.offsetX / scale),
             y: Math.round(mouseEvent.offsetY / scale),
             modifiers: this.modifiersForEvent(mouseEvent),
@@ -46,28 +46,37 @@ export class ScreencastInputHandler {
     }
 
     emitKeyEvent(keyboardEvent: KeyboardEvent): void {
-        // For what seems a bug to me on CDP:
-        // - non printable key events only respond to object with type keydown and virtual key codes.
-        // - printable characters respond only to object with type char and text property set to key.
-        // This could be related:
-        // https://github.com/ChromeDevTools/devtools-protocol/issues/45
-        if(keyboardEvent.type === 'keydown' && keyboardEvent.key.length > 1 && keyboardEvent.key !== 'Enter') {
+        const hasNonShiftModifier = !!(keyboardEvent.ctrlKey || keyboardEvent.altKey || keyboardEvent.metaKey);
+        if (hasNonShiftModifier || keyboardEvent.key === 'Tab') {
+            // Prevent keyboard shortcuts from acting on the screencast image.
+            keyboardEvent.preventDefault();
+            keyboardEvent.stopPropagation();
+        }
+        if ((keyboardEvent.ctrlKey || keyboardEvent.metaKey) && (keyboardEvent.key === 'c' || keyboardEvent.key === 'x') && keyboardEvent.type === 'keydown') {
+            // We make a call to CDP to get the currently selected text in the screencast.
+            // By passing "true" for the "isCutOrCopy" parameter in "sendMessageToBackend", the cdpConnection class will
+            // handle the response to the Runtime.evaluate call and update the user's system clipboard.
+            this.cdpConnection.sendMessageToBackend('Runtime.evaluate', {
+                expression: 'document.getSelection().toString()',
+            }, undefined, true);
+        }
+        if ((keyboardEvent.ctrlKey || keyboardEvent.metaKey) && keyboardEvent.key === 'v' && keyboardEvent.type === 'keydown') {
+            // If the user inputs a paste command shortcut, we send a request to VSCode to retrieve the user's system clipboard contents.
+            // When the clipboard contents are sent back to the screencast, we insert that text into the screencast-focused input via "pasteClipboardContents"
+            this.cdpConnection.readClipboardAndPasteRequest();
+        } else if (keyboardEvent.type === 'keydown' || keyboardEvent.type === 'keyup') {
+            const text = hasNonShiftModifier ? '' : this.textFromEvent(keyboardEvent);
             this.cdpConnection.sendMessageToBackend('Input.dispatchKeyEvent', {
-                type: 'keyDown',
+                type: keyboardEvent.type === 'keyup' ? 'keyUp' : (text ? 'keyDown' : 'rawKeyDown'),
+                autoRepeat: keyboardEvent.repeat,
+                code: keyboardEvent.code,
+                key: keyboardEvent.key,
+                location: keyboardEvent.location,
+                modifiers: this.modifiersForEvent(keyboardEvent),
                 windowsVirtualKeyCode: keyboardEvent.keyCode,
                 nativeVirtualKeyCode: keyboardEvent.keyCode,
+                text,
             });
-        } else if(keyboardEvent.type === 'keypress') {
-            const cdpObject = { 
-                type: 'char',
-                text: keyboardEvent.key
-            }
-
-            if (keyboardEvent.key === 'Enter') {
-                cdpObject.text = '\r';
-            }
-
-            this.cdpConnection.sendMessageToBackend('Input.dispatchKeyEvent', cdpObject);
         }
     }
 
@@ -111,6 +120,19 @@ export class ScreencastInputHandler {
             params.type = 'mouseReleased';
             this.cdpConnection.sendMessageToBackend('Input.emulateTouchFromMouseEvent', params);
         }
+    }
+
+    private textFromEvent(event: KeyboardEvent): string {
+        if (event.type === 'keyup') {
+            return '';
+        }
+        if (event.key === 'Enter') {
+            return '\r';
+        }
+        if (event.key.length > 1) {
+            return '';
+        }
+        return event.key;
     }
 
     private modifiersForEvent(event: MouseEvent | KeyboardEvent): number {

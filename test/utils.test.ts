@@ -79,6 +79,25 @@ describe("utils", () => {
             expect(fake.on).toHaveBeenNthCalledWith(2, "end", expect.any(Function));
         });
 
+        it("options passed to 'get' uses PUT as HTTP verb", async () => {
+            // Chrome headless require 'PUT' instead of 'GET' for /json/new otherwise we get
+            // 'Using unsafe HTTP verb GET to invoke /json/new. The recommended way is to use PUT'
+            const httpGetMock = mockGetHttp;
+            const customError = new Error('customError');
+            const fakeGet = (_options: any, callback: (resp: object) => void) => {
+                expect(_options.method).not.toBeUndefined();
+                expect(_options.method).toEqual('PUT');
+
+                // after validation we can halt execution to resolve the promise chain.
+                return { on: () => { throw customError } }
+            };
+
+            httpGetMock.mockImplementation(fakeGet);
+            await utils.fetchUri("http://somedomain.com/json/list").catch((error: any) => {
+                expect(error).toEqual(customError);
+            })
+        });
+
         it("requests http url correctly", async () => {
             const expectedHttpResponse = "[{},{}]";
             mockGetHttp.mockImplementation(
@@ -410,7 +429,7 @@ describe("utils", () => {
 
         it("returns a retail version when valid package in retail env", async () => {
             const retailReporter = {};
-            jest.doMock("vscode-extension-telemetry", () => function retail() { return retailReporter; });
+            jest.doMock("@vscode/extension-telemetry", () => function retail() { return retailReporter; });
             jest.resetModules();
             jest.requireMock("vscode").env.machineId = "12345";
 
@@ -1016,8 +1035,7 @@ describe("utils", () => {
             vscodeMock.workspace.getConfiguration.mockImplementation(() => {
                 return {
                     ...originalWorkspaceMockConfig,
-                    welcome: 'true',
-                    enableNetwork: 'false',
+                    isHeadless: 'false',
                 }
             });
 
@@ -1028,20 +1046,20 @@ describe("utils", () => {
         it('correctly records all changed extension settings', async () => {
             const reporter = createFakeTelemetryReporter();
             utils.reportExtensionSettings(reporter);
-            expect(reporter.sendTelemetryEvent).toBeCalledWith('user/settingsChangedAtLaunch', { welcome: 'true', enableNetwork: 'false' });
+            expect(reporter.sendTelemetryEvent).toBeCalledWith('user/settingsChangedAtLaunch', { isHeadless: 'false' });
         });
 
         it('correctly sends telemetry event for changed event', async () => {
             const reporter = createFakeTelemetryReporter();
             const configurationChangedEvent: ConfigurationChangeEvent = {affectsConfiguration: (name): boolean=> {
-                if (name === 'vscode-edge-devtools.enableNetwork') {
+                if (name === 'vscode-edge-devtools.isHeadless') {
                     return true;
                 } else {
                     return false;
                 }
             }};
             utils.reportChangedExtensionSetting(configurationChangedEvent, reporter);
-            expect(reporter.sendTelemetryEvent).toBeCalledWith('user/settingsChanged', { enableNetwork: 'false' });
+            expect(reporter.sendTelemetryEvent).toBeCalledWith('user/settingsChanged', { isHeadless: 'false' });
         });
     });
 });

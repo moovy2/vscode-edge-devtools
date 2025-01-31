@@ -9,11 +9,11 @@ import * as path from 'path';
 import * as url from 'url';
 import * as vscode from 'vscode';
 import * as debugCore from 'vscode-chrome-debug-core';
-import TelemetryReporter from 'vscode-extension-telemetry';
+import TelemetryReporter from '@vscode/extension-telemetry';
 import packageJson from '../package.json';
 import { DebugTelemetryReporter } from './debugTelemetryReporter';
 
-import puppeteer from 'puppeteer-core';
+import puppeteer, {Browser} from 'puppeteer-core';
 import { ErrorReporter } from './errorReporter';
 import { ErrorCodes } from './common/errorCodes';
 
@@ -63,6 +63,7 @@ export interface IRuntimeConfig {
     useLocalEdgeWatch: boolean;
     devtoolsBaseUri?: string;
     defaultEntrypoint?: string;
+    browserFlavor: BrowserFlavor;
 }
 export interface IStringDictionary<T> {
     [name: string]: T;
@@ -82,7 +83,7 @@ export const SETTINGS_DEFAULT_HOSTNAME = 'localhost';
 export const SETTINGS_DEFAULT_PORT = 9222;
 export const SETTINGS_DEFAULT_URL = path.resolve(path.join(__dirname, 'startpage', 'index.html'));
 export const SETTINGS_WEBVIEW_NAME = 'Edge DevTools';
-export const SETTINGS_SCREENCAST_WEBVIEW_NAME = 'Edge DevTools: Screencast';
+export const SETTINGS_SCREENCAST_WEBVIEW_NAME = 'Edge DevTools: Browser';
 export const SETTINGS_PREF_NAME = 'devtools-preferences';
 export const SETTINGS_PREF_DEFAULTS = {
     screencastEnabled: false,
@@ -102,7 +103,6 @@ export const SETTINGS_DEFAULT_PATH_OVERRIDES: IStringDictionary<string> = {
 };
 export const SETTINGS_DEFAULT_WEB_ROOT = '${workspaceFolder}';
 export const SETTINGS_DEFAULT_SOURCE_MAPS = true;
-export const SETTINGS_DEFAULT_EDGE_DEBUGGER_PORT = 2015;
 export const SETTINGS_DEFAULT_ATTACH_TIMEOUT = 10000;
 export const SETTINGS_DEFAULT_ATTACH_INTERVAL = 200;
 export const SETTINGS_DEFAULT_ENTRY_POINT = 'index.html';
@@ -110,8 +110,8 @@ export const SETTINGS_DEFAULT_ENTRY_POINT = 'index.html';
 const WIN_APP_DATA = process.env.LOCALAPPDATA || '/';
 const msEdgeBrowserMapping: Map<BrowserFlavor, IBrowserPath> = new Map<BrowserFlavor, IBrowserPath>();
 
-// Current Revision: 94.0.992.31
-export const CDN_FALLBACK_REVISION = '@fd65e6bbedc86a22f2393b7cd8d1585c54cada42';
+// Current Revision: 132.0.2957.140
+export const CDN_FALLBACK_REVISION = '@a81e27b375d4f113f79997ac7f2bb49b93fbb84d';
 
 /** Build-specified flags. */
 declare const DEBUG: boolean;
@@ -159,6 +159,7 @@ export function fetchUri(uri: string, options: https.RequestOptions = {}): Promi
             rejectUnauthorized: false,
             ...parsedUrl,
             ...options,
+            method: 'PUT',
         } as http.RequestOptions;
 
         get(options, response => {
@@ -225,7 +226,7 @@ export async function getListOfTargets(hostname: string, port: number, useHttps:
             if (jsonResponse) {
                 break;
             }
-        } catch (e) {
+        } catch {
             // localhost might not be ready as the user might not have a server running
             // user may also have changed settings making the endpoint invalid
         }
@@ -238,7 +239,7 @@ export async function getListOfTargets(hostname: string, port: number, useHttps:
         void ErrorReporter.showErrorDialog({
             errorCode: ErrorCodes.Error,
             title: 'Error while parsing the list of targets.',
-            message: e,
+            message: e instanceof Error && e.message ? e.message : `Unexpected error ${e}`,
         });
     }
     return result;
@@ -319,11 +320,12 @@ export async function getJsDebugCDPProxyWebsocketUrl(debugSessionId: string): Pr
         if (e instanceof Error) {
             return e;
         }
+
         // Throw remaining unhandled exceptions
         void ErrorReporter.showErrorDialog({
             errorCode: ErrorCodes.Error,
             title: 'Error while creating the debug socket for CDP target.',
-            message: e,
+            message: `Unexpected error ${e}`,
         });
     }
 }
@@ -334,13 +336,21 @@ export async function getJsDebugCDPProxyWebsocketUrl(debugSessionId: string): Pr
  * @param context The vscode context
  */
 export function createTelemetryReporter(_context: vscode.ExtensionContext): Readonly<TelemetryReporter> {
-    if (packageJson && _context.extensionMode === 1 /* Production */) {
+    if (packageJson && (_context.extensionMode === vscode.ExtensionMode.Production)) {
         // Use the real telemetry reporter
-        return new TelemetryReporter(packageJson.name, packageJson.version, packageJson.aiKey);
+        return new TelemetryReporter(packageJson.oneDSKey);
     }
         // Fallback to a fake telemetry reporter
         return new DebugTelemetryReporter();
 
+}
+
+export function getCSSMirrorContentEnabled(context: vscode.ExtensionContext): boolean {
+    return context.globalState.get<boolean>('cssMirrorContent') ?? true;
+}
+
+export function setCSSMirrorContentEnabled(context: vscode.ExtensionContext, isEnabled: boolean): Thenable<void> {
+    return context.globalState.update('cssMirrorContent', isEnabled);
 }
 
 /**
@@ -382,8 +392,9 @@ export async function getBrowserPath(config: Partial<IUserConfig> = {}): Promise
  * @param port The port on which to enable remote debugging
  * @param targetUrl The url of the page to open
  * @param userDataDir The user data directory for the launched instance
+ * @param forceHeadless This force overrides the --headless arg for browser launch
  */
-export async function launchBrowser(browserPath: string, port: number, targetUrl: string, userDataDir?: string): Promise<puppeteer.Browser> {
+export async function launchBrowser(browserPath: string, port: number, targetUrl: string, userDataDir?: string, forceHeadless?: boolean): Promise<Browser> {
     const args = [
         '--no-first-run',
         '--no-default-browser-check',
@@ -391,7 +402,7 @@ export async function launchBrowser(browserPath: string, port: number, targetUrl
         targetUrl,
     ];
 
-    const headless: boolean = isHeadlessEnabled();
+    const headless: boolean = forceHeadless ?? isHeadlessEnabled();
 
     let browserArgs: string[] = getBrowserArgs();
     browserArgs = browserArgs.filter(arg => !arg.startsWith('--remote-debugging-port') && arg !== targetUrl);
@@ -444,6 +455,7 @@ export function removeTrailingSlash(uri: string): string {
 export function getRuntimeConfig(config: Partial<IUserConfig> = {}): IRuntimeConfig {
     const settings = vscode.workspace.getConfiguration(SETTINGS_STORE_NAME);
     const pathMapping = config.pathMapping || settings.get('pathMapping') || SETTINGS_DEFAULT_PATH_MAPPING;
+    const browserFlavor = config.browserFlavor || settings.get('browserFlavor') || 'Default';
     const sourceMapPathOverrides =
         config.sourceMapPathOverrides || settings.get('sourceMapPathOverrides') || SETTINGS_DEFAULT_PATH_OVERRIDES;
     const webRoot = config.webRoot || settings.get('webRoot') || SETTINGS_DEFAULT_WEB_ROOT;
@@ -489,6 +501,7 @@ export function getRuntimeConfig(config: Partial<IUserConfig> = {}): IRuntimeCon
     return {
         pathMapping: resolvedMappingOverrides,
         sourceMapPathOverrides: resolvedOverrides,
+        browserFlavor,
         sourceMaps,
         webRoot: resolvedWebRoot,
         isJsDebugProxiedCDPConnection: false,
@@ -717,6 +730,7 @@ export function reportExtensionSettings(telemetryReporter: Readonly<TelemetryRep
                         }
                     }
                 } else {
+                    // eslint-disable-next-line @typescript-eslint/no-base-to-string
                     changedSettingsMap.set(settingName, settingValue.toString());
                 }
             }
@@ -795,6 +809,31 @@ export async function reportFileExtensionTypes(telemetryReporter: Readonly<Telem
     const fileTypes: {[key: string]: number} = {};
     Object.assign(fileTypes, ...[...extensionMap.entries()].map(([k, v]) => ({[k]: v})));
     telemetryReporter.sendTelemetryEvent('workspace/metadata', undefined, fileTypes);
+}
+
+export function checkWithinHoverRange(position: vscode.Position, range: vscode.Range): boolean {
+    if (position.line >= range.start.line && position.line <= range.end.line) {
+        // We need to add a 1 char buffer on each side since hover events are triggered if the cursor is
+        // 1 char away from a diagnostic line.
+        if (position.line === range.start.line && position.character + 1 < range.start.character) {
+            return false;
+        }
+        if (position.line === range.end.line && position.character > range.end.character) {
+            return false;
+        }
+        return true;
+    }
+    return false;
+}
+
+export function getSupportedStaticAnalysisFileTypes(): string[] {
+    const supportedFileTypes = [];
+    for (const event of packageJson.activationEvents) {
+        if (event.startsWith('onLanguage:')) {
+            supportedFileTypes.push(event.substring(11));
+        }
+    }
+    return supportedFileTypes;
 }
 
 (function initialize() {

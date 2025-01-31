@@ -2,13 +2,13 @@
 // Licensed under the MIT License.
 
 import * as vscode from 'vscode';
-import TelemetryReporter from 'vscode-extension-telemetry';
+import TelemetryReporter from '@vscode/extension-telemetry';
 import * as path from 'path';
 import * as fs from 'fs';
 import { CDPTarget } from './cdpTarget';
 import { fixRemoteWebSocket, getListOfTargets, getRemoteEndpointSettings, IRemoteTargetJson, isLocalResource, SETTINGS_STORE_NAME } from './utils';
 import { IncomingMessage } from 'http';
-import https = require('https');
+import * as https from 'https';
 import { LaunchConfigManager } from './launchConfigManager';
 
 export class CDPTargetsProvider implements vscode.TreeDataProvider<CDPTarget> {
@@ -107,7 +107,7 @@ export class CDPTargetsProvider implements vscode.TreeDataProvider<CDPTarget> {
         }
         const faviconRegex = /((?:\/\/|\.)([^\.]*)\.[^\.^\/]+\/).*/;
 
-        // Example regex match: https://docs.microsoft.com/en-us/microsoft-edge/
+        // Example regex match: https://learn.microsoft.com/en-us/microsoft-edge/
         // urlMatch[0] = .microsoft.com/en-us/microsoft-edge/
         // urlMatch[1] = .microsoft.com/
         // urlMatch[2] = microsoft
@@ -128,7 +128,7 @@ export class CDPTargetsProvider implements vscode.TreeDataProvider<CDPTarget> {
             https.get(faviconUrl, (response: IncomingMessage) => {
                 if (response.headers['content-type'] && response.headers['content-type'].includes('icon')) {
                     const buffer: Uint8Array[] = [];
-                    response.on('data', data => {
+                    response.on('data', (data: Uint8Array) => {
                         buffer.push(data);
                     });
 
@@ -138,11 +138,13 @@ export class CDPTargetsProvider implements vscode.TreeDataProvider<CDPTarget> {
                             await fs.promises.writeFile(filePath, Buffer.concat(buffer));
                             actualTarget.faviconUrl = filePath;
                             resolve(actualTarget);
-                        } catch (e) {
+                        } catch {
+                            // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors
                             reject(actualTarget);
                         }
                     });
                 } else {
+                    // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors
                     resolve(actualTarget);
                 }
             });

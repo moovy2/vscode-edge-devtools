@@ -2,7 +2,7 @@
     "name": "vscode-edge-devtools",
     "displayName": "Microsoft Edge Tools for VS Code",
     "description": "Use the Microsoft Edge Tools from within VS Code to see your site's runtime HTML structure, alter its layout, fix styling issues as well as see your site's network requests.",
-    "version": "1.4.6",
+    "version": "2.1.8",
     "license": "SEE LICENSE IN LICENSE",
     "publisher": "ms-edgedevtools",
     "preview": false,
@@ -28,21 +28,16 @@
         "dom"
     ],
     "engines": {
-        "node": ">=8.0.0",
-        "vscode": "^1.48.0"
+        "vscode": "^1.93.0"
     },
     "categories": [
         "Debuggers"
     ],
-    "aiKey": "AIF-d9b70cd4-b9f9-4d70-929b-a071c400b217",
+    "oneDSKey": "0c6ae279ed8443289764825290e4f9e2-1a736e7c-1324-4338-be46-fc2a58ae4d14-7255",
     "main": "./out/extension",
+    "sideEffects": false,
     "activationEvents": [
-        "onCommand:vscode-edge-devtools.attach",
-        "onCommand:vscode-edge-devtools.launch",
-        "onCommand:vscode-edge-devtools.attachToCurrentDebugTarget",
-        "onWebviewPanel:vscode-edge-devtools",
-        "onView:vscode-edge-devtools-view.targets",
-        "onDebug",
+        "onStartupFinished",
         "onLanguage:css",
         "onLanguage:html",
         "onLanguage:javascript",
@@ -117,7 +112,7 @@
             {
                 "command": "vscode-edge-devtools-view.toggleScreencast",
                 "category": "Microsoft Edge Tools",
-                "title": "Toggle screencast",
+                "title": "Toggle browser",
                 "enablement": "viewItem != cdpTargetClosing",
                 "icon": {
                     "light": "resources/light/screencast.svg",
@@ -160,7 +155,17 @@
                 "command": "vscode-edge-devtools-view.cssMirrorContent",
                 "category": "Microsoft Edge Tools",
                 "enablement": "titleCommandsRegistered",
-                "title": "Toggle mirror editing on for CSS files in workspace"
+                "title": "Toggle CSS mirror editing on/off"
+            },
+            {
+                "command": "vscode-edge-devtools-view.launchHtml",
+                "title": "Open Browser with DevTools",
+                "category": "Microsoft Edge Tools"
+            },
+            {
+                "command": "vscode-edge-devtools-view.launchScreencast",
+                "title": "Open Browser",
+                "category": "Microsoft Edge Tools"
             }
         ],
         "configuration": {
@@ -212,11 +217,6 @@
                     },
                     "description": "A set of mappings for rewriting the locations of source files from what the sourcemap says, to their locations on disk"
                 },
-                "vscode-edge-devtools.standaloneScreencast": {
-                    "type": "boolean",
-                    "default": true,
-                    "description": "When selected, screencast will be rendered in an individual screen and enable device emulation."
-                },
                 "vscode-edge-devtools.sourceMapPathOverrides": {
                     "type": "object",
                     "description": "A set of mappings to override the locations of source map files.",
@@ -234,25 +234,10 @@
                     "description": "Use JavaScript source maps (if they exist)",
                     "default": true
                 },
-                "vscode-edge-devtools.autoAttachViaDebuggerForEdge": {
-                    "type": "boolean",
-                    "description": "Auto attach the Microsoft Edge Tools extension when you launch a browser with the Debugger For Microsoft Edge debug adapter extension",
-                    "default": true
-                },
-                "vscode-edge-devtools.enableNetwork": {
-                    "type": "boolean",
-                    "description": "Enable network panel (requires relaunching extension)",
-                    "default": true
-                },
                 "vscode-edge-devtools.showWorkers": {
                     "type": "boolean",
                     "description": "Show service and shared workers in the target list.",
                     "default": false
-                },
-                "vscode-edge-devtools.welcome": {
-                    "type": "boolean",
-                    "description": "Enable Welcome panel (requires relaunching extension)",
-                    "default": true
                 },
                 "vscode-edge-devtools.headless": {
                     "type": "boolean",
@@ -289,20 +274,15 @@
                         "Microsoft Edge Tools for VS Code will use Microsoft Edge Canary version"
                     ]
                 },
-                "vscode-edge-devtools.cssMirrorContent": {
-                    "type": "boolean",
-                    "default": false,
-                    "description": "Enable edits in the styles pane to be automatically applied to the corresponding stylesheet in the workspace. (Only works when targeting Edge Browser versions 94.0.988.0+)"
-                },
                 "vscode-edge-devtools.webhint": {
                     "type": "boolean",
                     "default": true,
                     "description": "Enable feedback from webhint on source files to improve accessibility, compatibility, security and more."
                 },
-                "vscode-edge-devtools.fallbackRevision": {
-                    "type": "string",
-                    "default": "@c438621746b2932668109129d137a7e3a22ef4fd",
-                    "description": "Last known good revision used for when we fail to connect to the CDN with the current target revision."
+                "vscode-edge-devtools.webhintInstallNotification": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Turn off notification for webhint installation failures."
                 }
             }
         },
@@ -556,7 +536,7 @@
             "view/item/context": [
                 {
                     "command": "vscode-edge-devtools-view.toggleScreencast",
-                    "when": "view == vscode-edge-devtools-view.targets && viewItem == cdpTarget && standaloneScreencast",
+                    "when": "view == vscode-edge-devtools-view.targets && viewItem == cdpTarget",
                     "group": "inline@0"
                 },
                 {
@@ -578,8 +558,31 @@
                     "when": "view == vscode-edge-devtools-view.targets && viewItem == cdpTargetProperty",
                     "group": "2_contextMenu"
                 }
+            ],
+            "explorer/context": [
+                {
+                    "when": "resourceLangId == html",
+                    "submenu": "devtoolsContextMenu",
+                    "group": "navigation"
+                }
+            ],
+            "devtoolsContextMenu": [
+                {
+                    "command": "vscode-edge-devtools-view.launchHtml",
+                    "group": "navigation"
+                },
+                {
+                    "command": "vscode-edge-devtools-view.launchScreencast",
+                    "group": "navigation"
+                }
             ]
         },
+        "submenus": [
+            {
+                "id": "devtoolsContextMenu",
+                "label": "Open with Edge"
+            }
+        ],
         "viewsContainers": {
             "activitybar": [
                 {
@@ -663,9 +666,9 @@
         "package": "vsce package --out vscode-edge-devtools.vsix",
         "vscode:prepublish": "npm run build && npm run lint",
         "build": "webpack",
-        "build-debug": "npm run build debug",
-        "build-edge-watch": "webpack --env debug --env devtoolsBaseUri=http://localhost:3000/vscode_app.html",
-        "build-watch": "npm run build && npm run watch",
+        "build-debug": "npm run build -- --mode development --env debug",
+        "build-edge-watch": "npm run build-debug -- --env devtoolsBaseUri=http://localhost:3000/vscode_app.html",
+        "build-watch": "npm run build -- --mode development && npm run watch",
         "build-and-lint": "npm run build && npm run lint",
         "watch": "npm run watch-wp",
         "watch-wp": "webpack --watch",
@@ -673,44 +676,42 @@
         "test": "npm run lint && jest --config package.json --runInBand --env=jsdom"
     },
     "dependencies": {
-        "@vscode/codicons": "0.0.22",
-        "bufferutil": "4.0.4",
-        "puppeteer-core": "13.1.2",
-        "utf-8-validate": "5.0.6",
+        "@vscode/codicons": "0.0.36",
+        "@vscode/extension-telemetry":"0.9.4",
+        "bufferutil": "4.0.8",
+        "lit-html": "^3.2.0",
+        "puppeteer-core": "22.12.1",
+        "utf-8-validate": "6.0.4",
         "vscode-chrome-debug-core": "6.8.11",
-        "vscode-extension-telemetry": "0.4.1",
-        "vscode-webhint": "1.6.6",
-        "ws": "8.2.2",
+        "vscode-webhint": "2.1.15",
+        "ws": "8.18.0",
         "xmlhttprequest": "1.8.0"
     },
     "devDependencies": {
         "@opentelemetry/tracing": "0.24.0",
-        "@types/copy-webpack-plugin": "8.0.1",
-        "@types/fs-extra": "9.0.13",
-        "@types/jest": "27.0.2",
-        "@types/node": "16.10.1",
-        "@types/puppeteer-core": "5.4.0",
-        "@types/vscode": "1.48.0",
-        "@types/ws": "8.2.0",
-        "@typescript-eslint/eslint-plugin": "4.32.0",
-        "@typescript-eslint/parser": "4.32.0",
-        "copy-webpack-plugin": "9.0.1",
-        "eslint": "7.32.0",
-        "eslint-plugin-import": "2.24.2",
-        "eslint-plugin-jsdoc": "36.1.0",
+        "@types/fs-extra": "11.0.4",
+        "@types/jest": "29.5.14",
+        "@types/node": "22.5.4",
+        "@types/vscode": "1.93.0",
+        "@types/ws": "8.5.12",
+        "@typescript-eslint/eslint-plugin": "8.5.0",
+        "@typescript-eslint/parser": "8.5.0",
+        "@vscode/vsce": "^3.1.0",
+        "copy-webpack-plugin": "12.0.2",
+        "eslint": "8.57.1",
+        "eslint-plugin-import": "2.30.0",
+        "eslint-plugin-jsdoc": "50.2.3",
         "eslint-plugin-prefer-arrow": "1.2.3",
-        "fs-extra": "10.0.0",
-        "jest": "27.2.2",
-        "ts-jest": "27.0.5",
-        "ts-loader": "9.2.6",
-        "ts-node": "10.2.1",
-        "typescript": "4.4.3",
-        "uglify-js": "3.14.2",
-        "unzipper": "0.10.11",
-        "vsce": "2.6.4",
-        "vscode-languageclient": "7.0.0",
-        "vscode-test": "1.6.1",
-        "webpack": "5.54.0",
-        "webpack-cli": "4.8.0"
+        "fs-extra": "11.2.0",
+        "jest": "29.7.0",
+        "ts-jest": " 29.2.5",
+        "ts-loader": "9.5.1",
+        "typescript": "5.5.2",
+        "uglify-js": "3.19.3",
+        "unzipper": "0.12.3",
+        "jest-environment-jsdom": "^29.7.0",
+        "vscode-languageclient": "9.0.1",
+        "webpack": "5.94.0",
+        "webpack-cli": "5.1.4"
     }
 }

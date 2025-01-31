@@ -7,6 +7,7 @@ import {
     WebSocketEvent,
     ITelemetryProps,
     ITelemetryMeasures,
+    TelemetryData,
 } from './common/webviewEvents';
 import { JsDebugProxyPanelSocket } from './JsDebugProxyPanelSocket';
 import { PanelSocket } from './panelSocket';
@@ -14,8 +15,9 @@ import { ScreencastView } from './screencast/view';
 import {
     SETTINGS_STORE_NAME,
     SETTINGS_SCREENCAST_WEBVIEW_NAME,
+    SETTINGS_VIEW_NAME,
 } from './utils';
-import TelemetryReporter from 'vscode-extension-telemetry';
+import TelemetryReporter from '@vscode/extension-telemetry';
 import { DevToolsPanel } from './devtoolsPanel';
 import { providedHeadlessDebugConfig } from './launchConfigManager';
 
@@ -24,7 +26,8 @@ export class ScreencastPanel {
     private readonly extensionPath: string;
     private readonly panel: vscode.WebviewPanel;
     private readonly telemetryReporter: TelemetryReporter;
-    private targetUrl: string
+    private isJsDebugProxiedCDPConnection = false;
+    private targetUrl: string;
     private panelSocket: PanelSocket;
     private screencastStartTime;
     static instance: ScreencastPanel | undefined;
@@ -41,6 +44,7 @@ export class ScreencastPanel {
         this.extensionPath = this.context.extensionPath;
         this.telemetryReporter = telemetryReporter;
         this.screencastStartTime = Date.now();
+        this.isJsDebugProxiedCDPConnection = isJsDebugProxiedCDPConnection;
 
         if (isJsDebugProxiedCDPConnection) {
             this.panelSocket = new JsDebugProxyPanelSocket(this.targetUrl, (e, msg) => this.postToWebview(e, msg));
@@ -48,6 +52,9 @@ export class ScreencastPanel {
             this.panelSocket = new PanelSocket(this.targetUrl, (e, msg) => this.postToWebview(e, msg));
         }
         this.panelSocket.on('close', () => this.onSocketClose());
+        this.panelSocket.on('telemetry', (message: string) => this.onSocketTelemetry(message));
+        this.panelSocket.on('writeToClipboard', (message: string) => this.onSaveToClipboard(message));
+        this.panelSocket.on('readClipboard', () => this.onGetClipboardText());
 
         // Handle closing
         this.panel.onDidDispose(() => {
@@ -67,7 +74,11 @@ export class ScreencastPanel {
 
         // Handle messages from the webview
         this.panel.webview.onDidReceiveMessage(message => {
-            this.panelSocket.onMessageFromWebview(message);
+            if (typeof message === 'string') {
+                this.panelSocket.onMessageFromWebview(message);
+            } else if ('type' in message && (message as {type:string}).type === 'open-devtools') {
+                this.toggleDevTools();
+            }
         }, this);
 
         this.recordEnumeratedHistogram('DevTools.ScreencastToggle', 1);
@@ -100,6 +111,15 @@ export class ScreencastPanel {
         }
     }
 
+    private toggleDevTools() {
+        const websocketUrl = this.targetUrl;
+        if (DevToolsPanel.instance) {
+            DevToolsPanel.instance.dispose();
+        } else {
+            void vscode.commands.executeCommand(`${SETTINGS_VIEW_NAME}.attach`, { websocketUrl }, this.isJsDebugProxiedCDPConnection);
+        }
+    }
+
     toggleInspect(enabled: boolean): void {
         encodeMessageForChannel(msg => this.panel.webview.postMessage(msg) as unknown as void, 'toggleInspect', { enabled });
     }
@@ -108,7 +128,7 @@ export class ScreencastPanel {
         this.dispose();
     }
 
-    private update() {
+    update(): void {
         this.panel.webview.html = this.getHtmlForWebview();
     }
 
@@ -121,8 +141,31 @@ export class ScreencastPanel {
         const inspectorUri = this.panel.webview.asWebviewUri(inspectorPath);
 		const codiconsUri = this.panel.webview.asWebviewUri(vscode.Uri.joinPath(this.context.extensionUri, 'node_modules', '@vscode/codicons', 'dist', 'codicon.css'));
         const cssPath = this.panel.webview.asWebviewUri(vscode.Uri.joinPath(this.context.extensionUri, 'out/screencast', 'view.css'));
-        const view = new ScreencastView(this.panel.webview.cspSource, cssPath, codiconsUri, inspectorUri);
+        const view = new ScreencastView(this.panel.webview.cspSource, cssPath, codiconsUri, inspectorUri, !!DevToolsPanel.instance);
         return view.render();
+    }
+
+    private onSocketTelemetry(message: string) {
+        const telemetry: TelemetryData = JSON.parse(message) as TelemetryData;
+        if (telemetry.event !== 'screencast') {
+            return;
+        }
+
+        this.telemetryReporter.sendTelemetryEvent(
+            `devtools/${telemetry.name}/${telemetry.data.event}`, {
+                'value': telemetry.data.value as string,
+            });
+    }
+
+    private onSaveToClipboard(message: string): void {
+        const clipboardMessage = JSON.parse(message) as {data: {message: string}};
+        void vscode.env.clipboard.writeText(clipboardMessage.data.message);
+    }
+
+    private onGetClipboardText(): void {
+        void vscode.env.clipboard.readText().then(clipboardText => {
+            encodeMessageForChannel(msg => this.panel.webview.postMessage(msg) as unknown as void, 'readClipboard', { clipboardText });
+        });
     }
 
     static createOrShow(context: vscode.ExtensionContext,
@@ -136,6 +179,7 @@ export class ScreencastPanel {
                 enableScripts: true,
                 retainContextWhenHidden: true,
             });
+            panel.iconPath = vscode.Uri.joinPath(context.extensionUri, 'icon.png');
             ScreencastPanel.instance = new ScreencastPanel(panel, context, telemetryReporter, targetUrl, isJsDebugProxiedCDPConnection);
         }
     }

@@ -1,3 +1,75 @@
+## 2.1.8
+* **[Bug Fix]**: Updating application insights key - [PR #2743](https://github.com/microsoft/vscode-edge-devtools/pull/2743)
+
+## 2.1.7
+* **[Bug Fix]**: Use substituted config instead of raw - [PR #2485](https://github.com/microsoft/vscode-edge-devtools/pull/2485)
+* **[Upgrade]**: Updating puppeteer-core and jest dependencies - [PR #2702](https://github.com/microsoft/vscode-edge-devtools/pull/2702)
+* **[Upgrade]**: Upgrading typescript and vscode-extension-telemetry - [PR #2704](https://github.com/microsoft/vscode-edge-devtools/pull/2704)
+* **[Feature]**: Adding launchURL argument for the vscode-edge-devtools.launch command - [PR #2721](https://github.com/microsoft/vscode-edge-devtools/pull/2721)
+* **[Upgrade]**: Bump undici from 6.19.8 to 6.21.1 - [PR #2714](https://github.com/microsoft/vscode-edge-devtools/pull/2714)
+* **[Bug Fix]**: Copy element as any selector is not working ( > 134.0.3109.0) - [PR #2727](https://github.com/microsoft/vscode-edge-devtools/pull/2727)
+* **[Upgrade]**:Ramping up fallback version - [PR #2740](https://github.com/microsoft/vscode-edge-devtools/pull/2740)
+
+## 2.1.6
+* **[Bug Fix]**: Fixing an issue where webhint was not being loaded - [PR #2418](https://github.com/microsoft/vscode-edge-devtools/pull/2418)
+* **[Bug Fix]**: Updating fallback version to 127 - [PR #2425](https://github.com/microsoft/vscode-edge-devtools/pull/2425)
+* **[Upgrade]**: Bump puppeteer to v18 - [PR #2423](https://github.com/microsoft/vscode-edge-devtools/pull/2423)
+* **[Upgrade]**: Bumping several dependencies to newer versions - [PR #2417](https://github.com/microsoft/vscode-edge-devtools/pull/2417)
+
+## 2.1.5
+* **[Bug Fix]**: Fixing relaunch scenario on headless - [PR #1979](https://github.com/microsoft/vscode-edge-devtools/pull/1979)
+* **[Bug Fix]**: Patch for missing icons - [PR #2045](https://github.com/microsoft/vscode-edge-devtools/pull/2045)
+* **[Bug Fix]**: Updating fallback version to 120 - [PR #2046](https://github.com/microsoft/vscode-edge-devtools/pull/2046)
+
+## 2.1.4
+* **[Bug Fix]**: Extension fails to relaunch an instance (headless) - [PR #1978](https://github.com/microsoft/vscode-edge-devtools/pull/1978)
+* **[Bug Fix]**: Error while fetching list of available targets No available targets to attach - [PR #1804](https://github.com/microsoft/vscode-edge-devtools/pull/1804)
+* **[Bug Fix]**: Updates most dependencies to latest versions - [PR #1642](https://github.com/microsoft/vscode-edge-devtools/pull/1642)
+
+## 2.1.3
+* **[Bug Fix]**: Adding dashes for passing arguments to scripts  - [PR #1624](https://github.com/microsoft/vscode-edge-devtools/pull/1624)
+* **[Feature]**: Reducing size of extension bundle (Produce production builds by default) - [PR #1598](https://github.com/microsoft/vscode-edge-devtools/pull/1598)
+* **[Feature]**: Updating vscode-webhint version to 2.1.10  - [PR #1560](https://github.com/microsoft/vscode-edge-devtools/pull/1560)
+* **[Bug Fix]**: Changed screencast label to toggle browser to comply with docs  - [PR #1331](https://github.com/microsoft/vscode-edge-devtools/pull/1331)
+
+## 2.1.2
+* **[Bug Fix]**: Updating fallback version for the devtools revision - [PR #1290](https://github.com/microsoft/vscode-edge-devtools/pull/1290)
+
+## 2.1.1
+* **[Feature]**: Add Code Actions and Autofix - [PR #1086](https://github.com/microsoft/vscode-edge-devtools/pull/1086), [PR #1122](https://github.com/microsoft/vscode-edge-devtools/pull/1122), [PR #1173](https://github.com/microsoft/vscode-edge-devtools/pull/1173)
+
+## 2.1.0
+* **[Feature]**: Add context menu option to open html file with Edge DevTools - [PR #1057](https://github.com/microsoft/vscode-edge-devtools/pull/1057)
+* **[Feature]**: Add text-only clipboard functionality - [PR #1035](https://github.com/microsoft/vscode-edge-devtools/pull/1035)
+* **[Feature]**: Bump min DevTools version to include the Application panel - [PR #1030](https://github.com/microsoft/vscode-edge-devtools/pull/1030)
+* **[Feature]**: Support file system paths in screencast address bar - [PR #1015](https://github.com/microsoft/vscode-edge-devtools/pull/1015)
+* **[Bug Fix]**: Fix CSS mirroring for CRLF - [PR #1085](https://github.com/microsoft/vscode-edge-devtools/pull/1085)
+* **[Bug Fix]**: Route no config debug session to default launch experience - [PR #1040](https://github.com/microsoft/vscode-edge-devtools/pull/1040)
+* **[Bug Fix]**: Stop CSS Mirroring warning from re-firing if active - [PR #1037](https://github.com/microsoft/vscode-edge-devtools/pull/1037)
+* **[Bug Fix]**: Change Open DevTools button to Toggle DevTools - [PR #1032](https://github.com/microsoft/vscode-edge-devtools/pull/1032)
+* **[Bug Fix]**: Clean up obsolete settings and debugger types - [PR #1026](https://github.com/microsoft/vscode-edge-devtools/pull/1026), [PR #1024](https://github.com/microsoft/vscode-edge-devtools/pull/1024), [PR #1022](https://github.com/microsoft/vscode-edge-devtools/pull/1022), [PR #1021](https://github.com/microsoft/vscode-edge-devtools/pull/1021), [PR #1020](https://github.com/microsoft/vscode-edge-devtools/pull/1020), [PR #1017](https://github.com/microsoft/vscode-edge-devtools/pull/1017), [PR #1016](https://github.com/microsoft/vscode-edge-devtools/pull/1016)
+
+## 2.0.0
+* **[Feature]**: Screencast V2 - adds media feature emulation, vision deficiency emulation, and updates the Screencast UI - [PR #983](https://github.com/microsoft/vscode-edge-devtools/pull/983)
+* **[Feature]**: Better sourcemap support for CSS Mirroring
+* **[Bug Fix]**: Fix mapping input coordinates when VS Code is zoomed [#978](https://github.com/microsoft/vscode-edge-devtools/pull/978)
+* **[Bug Fix]**: Fix scaling down emulated devices to fit available space [#981](https://github.com/microsoft/vscode-edge-devtools/pull/981)
+* **[Bug Fix]**: Forward keyboard shortcuts via screencast [#984](https://github.com/microsoft/vscode-edge-devtools/pull/984)
+* **[Bug Fix]**: Add Edge icon to webviews and s/Screencast/Browser/ [#995](https://github.com/microsoft/vscode-edge-devtools/pull/995)
+* **[Bug Fix]**: Add an inspect button to open DevTools from the screencast [#991](https://github.com/microsoft/vscode-edge-devtools/pull/991)
+
+## 1.4.8
+* **[Feature]**: Support CSS Mirroring Enablement from DevTools frontend - [PR #932](https://github.com/microsoft/vscode-edge-devtools/pull/932)
+* **[Bug Fix]**: Stop debugging session on a headless target when both DevToolsPanel and Screencast are closed - [PR #966](https://github.com/microsoft/vscode-edge-devtools/pull/966)
+* **[Feature]**: Warn and pause mirroring CSS if it would override local edits - [PR #963](https://github.com/microsoft/vscode-edge-devtools/pull/963)
+* **[Bug Fix]**: Remove theme settings + add auto-detection for light/dark theme for unsupported vscode themes - [PR #975](https://github.com/microsoft/vscode-edge-devtools/pull/975)
+* **[Feature]**: Add telemetry for webhint hover events - [PR #986](https://github.com/microsoft/vscode-edge-devtools/pull/986)
+* **[Bug Fix]**: Updating webhint version - [PR #992](https://github.com/microsoft/vscode-edge-devtools/pull/992)
+
+## 1.4.7
+* **[Bug Fix]**: Update vscode-webhint to version 1.6.6. Fixes "Unable to start webhint" errors - [PR #951](https://github.com/microsoft/vscode-edge-devtools/pull/951)
+* **[Bug Fix]**: Improve logic for configuring existing launch.json - [PR #945](https://github.com/microsoft/vscode-edge-devtools/pull/945)
+
 ## 1.4.6
 * **[Feature]**: Enable console tool in DevTools (Only available on Edge version 101.0.1193.0+) - [PR #905](https://github.com/microsoft/vscode-edge-devtools/pull/905)
 * **[Feature]**: Updated auto-generated launch.json configs to use JSDebug workflows - [PR #927](https://github.com/microsoft/vscode-edge-devtools/pull/927)
